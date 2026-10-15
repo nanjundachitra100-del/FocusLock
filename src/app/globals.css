@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: #080b18; }
+body { color: #f7f8ff; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #29304a; border-radius: 99px; }
+.glass { background: linear-gradient(145deg, rgba(22,27,53,.92), rgba(15,19,39,.8)); border: 1px solid rgba(130,143,196,.16); box-shadow: 0 18px 50px rgba(0,0,0,.2); }
+.gradient-text { background: linear-gradient(90deg, #b7a7ff, #75a8ff); -webkit-background-clip: text; color: transparent; }
+.grid-bg { background-image: linear-gradient(rgba(93,107,164,.06) 1px, transparent 1px), linear-gradient(90deg, rgba(93,107,164,.06) 1px, transparent 1px); background-size: 32px 32px; }

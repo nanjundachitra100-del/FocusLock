@@ -1,9 +1,21 @@
 
 # FocusLock
 
-### Earn Your Scroll. Master Your Goals.
+FocusLock is a premium dark-mode learning and digital-wellness prototype: **Earn Your Scroll. Master Your Goals.**
 
-FocusLock is an AI-powered productivity application that encourages users to learn before accessing distracting websites.
+## Local development
+
+```bash
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. The app uses demo data and local React state for the prototype. The AI Learning Lab is intentionally labeled as demo-only; no Gemma model, database, or Chrome extension is connected.
+
+## Included flows
+
+Dashboard, mission cards, working focus timer, demo quiz flow, skill tree, focus garden, reward wallet, insights, and settings are available from the sidebar. The timer never grants rewards directly; sessions remain pending assessment.
+
 
 ## Planned Features
 
