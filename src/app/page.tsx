@@ -7,6 +7,7 @@ import { AuthControls } from "@/components/auth-controls";
 import { AccountDashboard } from "@/components/account-dashboard";
 import { createClient } from "@/lib/supabase/client";
 import { abandonFocusSession, completeFocusSession, createFocusSession } from "@/lib/supabase/focus-timer";
+import { AiLearningLab } from "@/components/ai-learning-lab";
 
 type Page = "Dashboard" | "Focus Missions" | "Focus Session" | "AI Learning Lab" | "Skill Tree" | "Focus Garden" | "Reward Wallet" | "Focus Insights" | "Settings";
 const nav: {label: Page; icon: React.ElementType}[] = [
@@ -281,7 +282,12 @@ export default function FocusLock() {
                   onRetryComplete={handleRetryComplete}
                 />
               )}
-              {active === "AI Learning Lab" && <Quiz quiz={quiz} setQuiz={setQuiz} answers={answers} setAnswers={setAnswers} />}
+              {active === "AI Learning Lab" && (
+                <AiLearningLab
+                  onQuizComplete={() => setDashboardRefreshKey((k) => k + 1)}
+                  activeSessionId={activeSessionId}
+                />
+              )}
               {active === "Skill Tree" && <SkillTree />}
               {active === "Focus Garden" && <Garden />}
               {active === "Settings" && <SettingsPage />}

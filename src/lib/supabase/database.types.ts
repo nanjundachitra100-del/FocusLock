@@ -93,7 +93,24 @@ export type Database = {
       >;
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      record_quiz_attempt_and_reward: {
+        Args: {
+          p_quiz_id: string;
+          p_score: number;
+          p_total_questions: number;
+          p_focus_session_id?: string | null;
+        };
+        Returns: {
+          attempt_id: string;
+          passed: boolean;
+          score: number;
+          total_questions: number;
+          reward_minutes: number;
+          available_minutes: number;
+        };
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };
