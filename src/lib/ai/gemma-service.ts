@@ -1,0 +1,292 @@
+if (typeof window !== "undefined") {
+  throw new Error("This module can only be executed on the server.");
+}
+import { getGemmaApiKey, getGemmaConfig, DEFAULT_GEMMA_MODEL } from "./gemma-config";
+import {
+  type ServerQuizQuestion,
+  validateGeneratedQuiz,
+} from "./quiz-schema";
+
+export interface GenerateQuizOptions {
+  notes: string;
+  topic?: string;
+  questionCount?: number;
+}
+
+export type ErrorCode =
+  | "MISSING_KEY"
+  | "RATE_LIMITED"
+  | "TIMEOUT"
+  | "PROVIDER_ERROR"
+  | "PARSE_ERROR"
+  | "INVALID_INPUT";
+
+export type GenerateQuizResult =
+  | { success: true; questions: ServerQuizQuestion[]; modelUsed: string }
+  | {
+      success: false;
+      error: string;
+      code: ErrorCode;
+    };
+
+/**
+ * Builds the instruction prompt for Gemma 4.
+ */
+function buildGemmaPrompt(
+  notes: string,
+  topic?: string,
+  count: number = 5,
+  isCorrectiveRetry: boolean = false,
+): string {
+  const topicLabel = topic?.trim() ? `Topic: "${topic.trim()}"` : "General Study Notes";
+
+  if (isCorrectiveRetry) {
+    return `Generate exactly ${count} multiple-choice questions from the notes below.
+${topicLabel}
+
+STUDY NOTES:
+"""
+${notes}
+"""
+
+CORRECTIVE INSTRUCTION: Output ONLY a valid JSON array of ${count} questions. Do NOT output any analysis, bullet points, reasoning, or markdown. Start directly with "[" and end with "]".
+
+JSON FORMAT:
+[
+  {
+    "question": "Question text here?",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "correctAnswer": "Option A",
+    "explanation": "Brief explanation citing notes."
+  }
+]`;
+  }
+
+  return `Generate a JSON array of exactly ${count} multiple-choice questions from the study notes below.
+${topicLabel}
+
+STUDY NOTES:
+"""
+${notes}
+"""
+
+REQUIREMENTS:
+1. Every question must be directly answerable from the facts in the study notes.
+2. Provide exactly 4 distinct options per question.
+3. Provide exactly 1 correct answer that precisely matches one of the 4 options.
+4. Keep questions, options, and explanations concise (1 sentence max for explanations).
+5. Output ONLY the raw JSON array. Do NOT write any thinking process, analysis, reasoning, bullet points, or markdown. Start directly with "[" and end with "]".
+
+JSON FORMAT:
+[
+  {
+    "question": "Question text here?",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "correctAnswer": "Option A",
+    "explanation": "Brief explanation citing notes."
+  }
+]`;
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Calls the Gemma 4 API with strict limits:
+ * - At most 1 single retry on transient error or invalid output
+ * - Bounded timeout per attempt (max 45s)
+ * - Increased maxOutputTokens to prevent truncation on large notes
+ */
+export async function generateQuizWithGemma(
+  options: GenerateQuizOptions,
+): Promise<GenerateQuizResult> {
+  const { notes, topic, questionCount = 5 } = options;
+
+  if (!notes || notes.trim().length < 20) {
+    return {
+      success: false,
+      error: "Study notes are too short. Please provide at least 20 characters of study material.",
+      code: "INVALID_INPUT",
+    };
+  }
+
+  const config = getGemmaConfig();
+  const apiKey = getGemmaApiKey();
+
+  if (!config.hasApiKey || !apiKey) {
+    return {
+      success: false,
+      error: "Gemma 4 provider is not configured. Set GEMMA_API_KEY (or GOOGLE_GENAI_API_KEY) in the server environment.",
+      code: "MISSING_KEY",
+    };
+  }
+
+  const totalBudgetMs = config.totalBudgetMs || 50000;
+  const startTime = Date.now();
+
+  let currentModel = config.primaryModel;
+  let lastError = "";
+  let lastCode: ErrorCode = "PROVIDER_ERROR";
+
+  // Maximum of 2 attempts total within total time budget
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const elapsedMs = Date.now() - startTime;
+    const remainingBudgetMs = totalBudgetMs - elapsedMs;
+
+    // If remaining budget is less than 10 seconds, do not launch a doomed attempt
+    if (remainingBudgetMs < 10000) {
+      lastError = "Quiz generation timed out before completing. The AI service is experiencing high latency; please try again in a moment.";
+      lastCode = "TIMEOUT";
+      break;
+    }
+
+    const isRetry = attempt > 1;
+    const perAttemptTimeoutMs = Math.min(
+      remainingBudgetMs - 2000,
+      config.timeoutMs || 50000,
+    );
+
+    const prompt = buildGemmaPrompt(notes, topic, questionCount, isRetry);
+    const requestUrl = `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+    try {
+      const response = await fetch(requestUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: prompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: isRetry ? 0.1 : 0.2,
+            topP: 0.9,
+            maxOutputTokens: 3072, // Prevent truncation on long notes
+            responseMimeType: "application/json",
+          },
+        }),
+        signal: AbortSignal.timeout(perAttemptTimeoutMs),
+      });
+
+      // 429 Rate Limit
+      if (response.status === 429) {
+        lastError = "Gemma 4 rate limit reached. Please wait a moment before generating another quiz.";
+        lastCode = "RATE_LIMITED";
+        if (!isRetry && (totalBudgetMs - (Date.now() - startTime)) >= 12000) {
+          await sleep(2000);
+          continue;
+        }
+        break;
+      }
+
+      // 503 Capacity / 500 Server Error
+      if (response.status === 503 || response.status === 500 || response.status === 502) {
+        const errorJson = (await response.json().catch(() => ({}))) as {
+          error?: { message?: string };
+        };
+        lastError =
+          errorJson.error?.message ||
+          `Gemma model ${currentModel} returned status ${response.status}.`;
+        lastCode = "PROVIDER_ERROR";
+
+        if (!isRetry && (totalBudgetMs - (Date.now() - startTime)) >= 20000) {
+          // Switch to fallback model if primary capacity was saturated
+          if (currentModel === config.primaryModel && config.fallbackModel !== config.primaryModel) {
+            currentModel = config.fallbackModel;
+          }
+          await sleep(1000);
+          continue;
+        }
+        break;
+      }
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        return {
+          success: false,
+          error: `Gemma provider returned status ${response.status}: ${errorText.substring(0, 200)}`,
+          code: "PROVIDER_ERROR",
+        };
+      }
+
+      const responseData = (await response.json()) as {
+        candidates?: Array<{
+          content?: {
+            parts?: Array<{ text?: string }>;
+          };
+          finishReason?: string;
+        }>;
+      };
+
+      const candidate = responseData.candidates?.[0];
+      const rawText = candidate?.content?.parts?.[0]?.text || "";
+
+      if (!rawText.trim()) {
+        lastError = "Gemma returned an empty response. Please verify your study notes content.";
+        lastCode = "PARSE_ERROR";
+        if (!isRetry && (totalBudgetMs - (Date.now() - startTime)) >= 15000) {
+          continue;
+        }
+        break;
+      }
+
+      // Validate parsed JSON strictly
+      const validation = validateGeneratedQuiz(rawText);
+      if (!validation.success) {
+        lastError = `Gemma output failed validation: ${validation.error}`;
+        lastCode = "PARSE_ERROR";
+
+        if (!isRetry && (totalBudgetMs - (Date.now() - startTime)) >= 15000) {
+          // Corrective retry on same fast model
+          await sleep(1000);
+          continue;
+        }
+        break;
+      }
+
+      return {
+        success: true,
+        questions: validation.questions,
+        modelUsed: currentModel + (currentModel !== config.primaryModel ? " (fallback)" : ""),
+      };
+    } catch (error) {
+      const isTimeout =
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.name === "AbortError");
+
+      if (isTimeout) {
+        lastError = `Quiz generation timed out. The AI model is currently under high demand; please try again in a moment.`;
+        lastCode = "TIMEOUT";
+
+        if (!isRetry && (totalBudgetMs - (Date.now() - startTime)) >= 22000) {
+          // If primary timed out, try fallback model once if budget permits
+          if (currentModel === config.primaryModel && config.fallbackModel !== config.primaryModel) {
+            currentModel = config.fallbackModel;
+            await sleep(1000);
+            continue;
+          }
+        }
+        break;
+      }
+
+      lastError = `Network error reaching Gemma provider: ${error instanceof Error ? error.message : String(error)}`;
+      lastCode = "PROVIDER_ERROR";
+      if (!isRetry && (totalBudgetMs - (Date.now() - startTime)) >= 15000) {
+        await sleep(1000);
+        continue;
+      }
+      break;
+    }
+  }
+
+  return {
+    success: false,
+    error: lastError || "Failed to generate quiz from Gemma 4.",
+    code: lastCode,
+  };
+}
