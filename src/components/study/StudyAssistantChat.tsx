@@ -19,11 +19,15 @@ function nextId() {
 type StudyAssistantChatProps = {
   narrationEnabled?: boolean;
   onNarrationEnabledChange?: (enabled: boolean) => void;
+  onAnswerReady?: (answer: string) => void;
+  onLoadingChange?: (loading: boolean) => void;
 };
 
 export default function StudyAssistantChat({
   narrationEnabled,
   onNarrationEnabledChange,
+  onAnswerReady,
+  onLoadingChange,
 }: StudyAssistantChatProps) {
   const [draft, setDraft] = useState("");
   const [items, setItems] = useState<ThreadItem[]>([]);
@@ -40,6 +44,16 @@ export default function StudyAssistantChat({
     }
     return "";
   }, [items]);
+
+  useEffect(() => {
+    onLoadingChange?.(loading);
+  }, [loading, onLoadingChange]);
+
+  useEffect(() => {
+    if (latestAssistant) {
+      onAnswerReady?.(latestAssistant);
+    }
+  }, [latestAssistant, onAnswerReady]);
 
   useEffect(() => {
     const node = listRef.current;

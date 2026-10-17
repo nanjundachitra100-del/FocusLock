@@ -10,11 +10,13 @@
   },
   "dependencies": {
     "@tailwindcss/postcss": "latest",
+    "@types/three": "^0.186.0",
     "lucide-react": "latest",
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "recharts": "latest"
+    "recharts": "latest",
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@types/node": "latest",
