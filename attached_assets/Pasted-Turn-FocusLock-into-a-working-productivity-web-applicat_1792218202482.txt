@@ -1,0 +1,74 @@
+Turn FocusLock into a working productivity web application.
+
+IMPORTANT:
+- Read README.md first and follow its product direction and specified technology stack.
+- The repository currently contains README.md and .replit.
+- Build the actual application, not just a landing page or static mockup.
+- Preserve the existing project structure and configuration wherever possible.
+- Do not replace the project with an unrelated template.
+- Make the application runnable in Replit.
+
+CORE FEATURES
+
+1. Dashboard
+- Create a clean, modern productivity dashboard.
+- Show today's focus time, completed focus sessions, and study progress.
+- Include quick actions to start studying and take a break.
+
+2. Focus Timer
+- Implement a working Pomodoro timer.
+- Include Start, Pause, Resume, and Reset controls.
+- Provide configurable focus and break durations.
+- Display the countdown accurately.
+- Track completed focus sessions.
+- Keep timer state consistent when navigating between sections.
+
+3. Study Quizzes
+- Create a quiz section with sample questions.
+- Let users select answers and submit them.
+- Calculate and display scores.
+- Include explanations for answers where appropriate.
+- Clearly identify sample questions; do not pretend they come from an AI model.
+
+4. AI Study Companion Foundation
+- Create a friendly companion area with a simple animated 2D character.
+- Give the character a name, personality, and welcoming messages.
+- Provide a chat interface for study questions and casual conversation.
+- For now, implement a working local demonstration using predefined responses if no AI credentials are configured.
+- Keep the AI service modular so a real AI model can be connected later.
+- Never expose API keys in frontend code.
+
+5. Break Mode
+- Add a break screen with simple activities such as jokes, riddles, and encouraging messages.
+- Allow users to return to their focus session easily.
+
+6. Website Blocking
+- Add a clearly labelled website-blocking settings section.
+- Allow users to maintain a list of distracting websites.
+- Explain that a normal web application cannot block websites across the user's device by itself. Do not falsely claim that blocking is active unless a real supported mechanism has been implemented.
+
+DESIGN
+- Make the interface attractive, modern, responsive, and suitable for students.
+- Use a consistent design system, clear navigation, polished cards, and subtle animations.
+- Give the AI companion a friendly visual identity.
+- Ensure the application works on desktop and mobile.
+
+IMPLEMENTATION REQUIREMENTS
+- Follow the technology stack in README.md.
+- Install only necessary dependencies.
+- Implement functional controls rather than decorative buttons.
+- Use reusable components and maintainable code.
+- Add sensible loading, empty, and error states.
+- Persist basic preferences and session statistics using an appropriate storage method supported by the existing stack.
+- Do not require paid services or API credentials for the initial demonstration.
+- Do not add fake authentication or claim that a backend exists if it does not.
+- Do not overwrite or expose secrets.
+- Add a README section explaining how to run the application and which features are demonstrational.
+
+VALIDATION
+- Install dependencies and start the application.
+- Fix compilation errors and runtime issues.
+- Test the timer, quiz interactions, navigation, and companion chat.
+- Make sure the Replit preview displays the working application.
+
+First inspect the repository and README, then implement the smallest complete, working version that satisfies these requirements. Do not stop after creating a plan.
