@@ -12,8 +12,6 @@ export interface RecordQuizOptions {
   quizId: string;
   score: number;
   totalQuestions: number;
-  passed: boolean;
-  rewardMinutes: number;
   focusSessionId?: string | null;
 }
 
@@ -23,7 +21,7 @@ export type RecordQuizResult =
       attemptId: string;
       rewardMinutes: number;
       availableMinutes: number;
-      method: "rpc" | "service_role";
+      method: "rpc";
     }
   | {
       success: false;
@@ -32,56 +30,65 @@ export type RecordQuizResult =
     };
 
 /**
- * Creates an admin Supabase client using SUPABASE_SERVICE_ROLE_KEY if configured.
- * This is only ever used server-side and never exposed to the client.
- */
-function getServiceRoleClient(): SupabaseClient<Database> | null {
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
-  if (!serviceKey) return null;
-
-  try {
-    const { url } = requireSupabasePublicConfig();
-    return createSupabaseClient<Database>(url, serviceKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Atomically records a quiz attempt and awards entertainment minutes if passed.
  * Prevents replays, enforces strict score constraints, and never trusts client values.
  */
+function createServiceRoleClient(): SupabaseClient<Database> {
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!serviceRoleKey) {
+    throw new Error("SUPABASE_SERVICE_ROLE_KEY is required for atomic quiz reward persistence.");
+  }
+
+  const { url } = requireSupabasePublicConfig();
+  return createSupabaseClient<Database>(url, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
 export async function persistQuizAttemptAndReward(
-  authenticatedClient: SupabaseClient<Database>,
   options: RecordQuizOptions,
 ): Promise<RecordQuizResult> {
-  const { userId, quizId, score, totalQuestions, passed, rewardMinutes, focusSessionId } = options;
+  const { userId, quizId, score, totalQuestions, focusSessionId } = options;
 
-  // 1. Check if this quiz attempt has already been submitted (idempotency / replay check)
-  const { data: existingAttempt, error: checkError } = await authenticatedClient
-    .from("quiz_attempts")
-    .select("id")
-    .eq("id", quizId)
-    .maybeSingle();
-
-  if (!checkError && existingAttempt) {
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userId) ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(quizId) ||
+    !Number.isInteger(totalQuestions) ||
+    totalQuestions <= 0 ||
+    !Number.isInteger(score) ||
+    score < 0 ||
+    score > totalQuestions
+  ) {
     return {
       success: false,
-      error: "This quiz attempt has already been evaluated and recorded.",
-      code: "ALREADY_SUBMITTED",
+      error: "Invalid server-calculated quiz result.",
+      code: "DB_ERROR",
     };
   }
 
-  // 2. Preferred path: Call the atomic PostgreSQL RPC function
+  let serviceClient: SupabaseClient<Database>;
   try {
-    const { data: rpcData, error: rpcError } = await (authenticatedClient.rpc as any)(
+    serviceClient = createServiceRoleClient();
+  } catch (error) {
+    console.error(
+      "[QuizPersistence] Server-side reward persistence is not configured.",
+      error instanceof Error ? error.message : "Unknown configuration error.",
+    );
+    return {
+      success: false,
+      error: "Server-side atomic quiz reward persistence is not configured.",
+      code: "DB_ERROR",
+    };
+  }
+
+  try {
+    const { data: rpcData, error: rpcError } = await serviceClient.rpc(
       "record_quiz_attempt_and_reward",
       {
+        p_user_id: userId,
         p_quiz_id: quizId,
         p_score: score,
         p_total_questions: totalQuestions,
@@ -90,6 +97,25 @@ export async function persistQuizAttemptAndReward(
     );
 
     if (!rpcError && rpcData) {
+      const expectedPassed = score / totalQuestions >= 0.8;
+      const expectedRewardMinutes = expectedPassed ? 10 : 0;
+      if (
+        rpcData.attempt_id !== quizId ||
+        rpcData.score !== score ||
+        rpcData.total_questions !== totalQuestions ||
+        rpcData.passed !== expectedPassed ||
+        rpcData.reward_minutes !== expectedRewardMinutes ||
+        !Number.isInteger(rpcData.available_minutes) ||
+        rpcData.available_minutes < 0
+      ) {
+        console.error("[QuizPersistence] Atomic quiz RPC returned an invalid result.");
+        return {
+          success: false,
+          error: "The quiz attempt and reward could not be confirmed.",
+          code: "DB_ERROR",
+        };
+      }
+
       return {
         success: true,
         attemptId: rpcData.attempt_id,
@@ -99,7 +125,6 @@ export async function persistQuizAttemptAndReward(
       };
     }
 
-    // If error is about duplicate submission
     if (rpcError?.message?.includes("already been submitted")) {
       return {
         success: false,
@@ -108,113 +133,35 @@ export async function persistQuizAttemptAndReward(
       };
     }
 
-    // If RPC function is not found, attempt service-role fallback
     const isMissingFunction =
       rpcError?.message?.includes("Could not find the function") ||
-      rpcError?.code === "PGRST202";
-
-    if (!isMissingFunction) {
-      // Real database error occurred
-      console.error("[QuizPersistence] RPC error:", rpcError?.message);
-    }
-  } catch (rpcErr) {
-    console.error("[QuizPersistence] RPC invocation failed:", rpcErr);
-  }
-
-  // 3. Fallback path: If SUPABASE_SERVICE_ROLE_KEY is available in the server environment
-  const adminClient = getServiceRoleClient();
-  if (adminClient) {
-    try {
-      // Re-check replay in admin client to prevent race conditions
-      const { data: existingAdmin } = await adminClient
-        .from("quiz_attempts")
-        .select("id")
-        .eq("id", quizId)
-        .maybeSingle();
-
-      if (existingAdmin) {
-        return {
-          success: false,
-          error: "This quiz attempt has already been evaluated and recorded.",
-          code: "ALREADY_SUBMITTED",
-        };
-      }
-
-      // Insert quiz attempt
-      const { data: insertedAttempt, error: attemptError } = await adminClient
-        .from("quiz_attempts")
-        .insert({
-          id: quizId,
-          user_id: userId,
-          score,
-          total_questions: totalQuestions,
-          passed,
-          focus_session_id: focusSessionId || null,
-        })
-        .select("id")
-        .single();
-
-      if (attemptError) {
-        console.error("[QuizPersistence] Service role attempt insert error:", attemptError.message);
-        return {
-          success: false,
-          error: `Failed to save quiz attempt: ${attemptError.message}`,
-          code: "DB_ERROR",
-        };
-      }
-
-      // Insert reward transaction if passed (10 minutes)
-      if (passed && rewardMinutes > 0) {
-        const { error: rewardError } = await adminClient
-          .from("reward_transactions")
-          .insert({
-            user_id: userId,
-            transaction_type: "earned",
-            minutes: rewardMinutes,
-            reference_id: quizId,
-          });
-
-        if (rewardError) {
-          console.error("[QuizPersistence] Service role reward insert error:", rewardError.message);
-        }
-      }
-
-      // Calculate updated available balance
-      const { data: rewards } = await adminClient
-        .from("reward_transactions")
-        .select("transaction_type, minutes")
-        .eq("user_id", userId);
-
-      const earned = (rewards || [])
-        .filter((r) => r.transaction_type === "earned")
-        .reduce((sum, r) => sum + r.minutes, 0);
-      const spent = (rewards || [])
-        .filter((r) => r.transaction_type === "spent")
-        .reduce((sum, r) => sum + r.minutes, 0);
-      const availableMinutes = Math.max(0, earned - spent);
-
-      return {
-        success: true,
-        attemptId: insertedAttempt.id,
-        rewardMinutes: passed ? rewardMinutes : 0,
-        availableMinutes,
-        method: "service_role",
-      };
-    } catch (adminErr) {
-      console.error("[QuizPersistence] Admin write error:", adminErr);
+      rpcError?.code === "PGRST202" ||
+      rpcError?.code === "42883";
+    if (isMissingFunction) {
       return {
         success: false,
-        error: "Failed to persist quiz attempt via service role.",
-        code: "DB_ERROR",
+        error:
+          "Secure database function 'record_quiz_attempt_and_reward' is not installed. Apply the latest quiz reward RPC security migration.",
+        code: "MIGRATION_REQUIRED",
       };
     }
+    if (rpcError?.code === "23505") {
+      return {
+        success: false,
+        error: "This quiz attempt has already been evaluated and recorded.",
+        code: "ALREADY_SUBMITTED",
+      };
+    }
+    if (rpcError) {
+      console.error("[QuizPersistence] Atomic RPC error:", rpcError.message);
+    }
+  } catch (rpcErr) {
+    console.error("[QuizPersistence] Atomic RPC invocation failed:", rpcErr);
   }
 
-  // 4. If neither RPC nor service role key is present
   return {
     success: false,
-    error:
-      "Database function 'record_quiz_attempt_and_reward' is not yet installed in Supabase. Apply migration 20261016000001_record_quiz_and_reward.sql or configure SUPABASE_SERVICE_ROLE_KEY.",
-    code: "MIGRATION_REQUIRED",
+    error: "Failed to persist the quiz attempt and reward atomically. Please try again.",
+    code: "DB_ERROR",
   };
 }

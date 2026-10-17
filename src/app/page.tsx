@@ -8,6 +8,7 @@ import { AccountDashboard } from "@/components/account-dashboard";
 import { createClient } from "@/lib/supabase/client";
 import { abandonFocusSession, completeFocusSession, createFocusSession } from "@/lib/supabase/focus-timer";
 import { AiLearningLab } from "@/components/ai-learning-lab";
+import { useExtensionStatus, type ExtensionStatus } from "@/lib/extension/status-bridge";
 
 type Page = "Dashboard" | "Focus Missions" | "Focus Session" | "AI Learning Lab" | "Skill Tree" | "Focus Garden" | "Reward Wallet" | "Focus Insights" | "Settings";
 const nav: {label: Page; icon: React.ElementType}[] = [
@@ -32,6 +33,7 @@ export default function FocusLock() {
   const [completed, setCompleted] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [dashboardRefreshKey, setDashboardRefreshKey] = useState(0);
+  const extensionStatus = useExtensionStatus();
 
   const [quiz, setQuiz] = useState(false);
   const [answers, setAnswers] = useState<Record<number, string>>({});
@@ -290,10 +292,12 @@ export default function FocusLock() {
               )}
               {active === "Skill Tree" && <SkillTree />}
               {active === "Focus Garden" && <Garden />}
-              {active === "Settings" && <SettingsPage />}
+              {active === "Settings" && (
+                <SettingsPage status={extensionStatus} onRefresh={extensionStatus.refresh} />
+              )}
 
               <div className="mt-6 text-center text-xs text-slate-600">
-                FocusLock prototype · Demo data only · No extension connected
+                FocusLock prototype · Demo data only · {extensionStatus.state === "authenticated" ? "Extension connected" : "No extension connected"}
               </div>
             </div>
           </div>
@@ -454,4 +458,92 @@ function SkillTree(){return <><SectionHead eyebrow="YOUR ROADMAP" title="Skill T
 function Garden(){return <><SectionHead eyebrow="GROW YOUR FOCUS" title="Focus Garden" copy="Every completed session plants a little proof of progress."/><div className="glass rounded-2xl p-8"><div className="flex min-h-72 items-end justify-center gap-5 rounded-2xl bg-gradient-to-b from-[#111a36] to-[#0d2a2a] p-8"><div className="text-center"><Sprout className="mx-auto mb-2 size-10 text-emerald-300"/><div className="text-xs text-emerald-200">New seed</div></div><div className="text-center"><Sprout className="mx-auto mb-2 size-14 text-emerald-300"/><div className="text-xs text-emerald-200">3 sessions</div></div><div className="text-center"><TreePine className="mx-auto mb-2 size-20 text-emerald-200"/><div className="text-xs text-emerald-200">Quiz passed</div></div><div className="flex size-20 items-center justify-center rounded-full border border-dashed border-white/15 text-xs text-slate-500">Plant next</div></div><div className="mt-5 flex items-center justify-between text-sm"><span className="text-slate-400">Garden level 2 · 3 of 5 plants grown</span><button className="rounded-xl bg-emerald-400/10 px-4 py-2 text-emerald-200">Plant a seed</button></div></div></>}
 function WalletPage(){return <><SectionHead eyebrow="EARN YOUR SCROLL" title="Reward Wallet" copy="Entertainment time is earned through focused learning."/><div className="grid gap-4 md:grid-cols-3"><Stat icon={Wallet} label="Available minutes" value="42 min" note="Expires in 6 days" tone="purple"/><Stat icon={Trophy} label="Total earned" value="180 min" note="Across 21 sessions" tone="green"/><Stat icon={Clock3} label="Pending assessment" value="10 min" note="Complete your quiz" tone="blue"/></div><div className="glass mt-4 rounded-2xl p-6"><h3 className="font-semibold">Reward history</h3>{["Linked Lists · 10 minutes earned","Focus streak · 15 minutes earned","Graph traversal · Assessment pending"].map((x,i)=><div className="flex items-center gap-3 border-t border-white/6 py-4 text-sm" key={x}><div className="flex size-8 items-center justify-center rounded-lg bg-white/5"><Trophy className="size-4 text-amber-300"/></div><span className="flex-1">{x}</span><Pill tone={i===2?"muted":"green"}>{i===2?"Pending":"Granted"}</Pill></div>)}</div></>}
 function Insights(){return <><SectionHead eyebrow="UNDERSTAND YOUR RHYTHM" title="Focus Insights" copy="Patterns from your demo activity, designed to become real once connected."/><div className="grid gap-4 md:grid-cols-3"><Stat icon={Clock3} label="Weekly study" value="17.8h" note="+18% vs last week" tone="purple"/><Stat icon={Target} label="Consistency" value="82%" note="Best day: Saturday" tone="green"/><Stat icon={Brain} label="Avg. accuracy" value="84%" note="+6% this month" tone="blue"/></div><div className="glass mt-4 rounded-2xl p-6"><h3 className="mb-5 font-semibold">Study duration</h3><div className="h-64"><ResponsiveContainer width="100%" height="100%"><AreaChart data={chartData}><XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fill:"#68708e",fontSize:11}}/><YAxis axisLine={false} tickLine={false} tick={{fill:"#68708e",fontSize:11}}/><Tooltip contentStyle={{background:"#161b35",border:"1px solid #333b60",borderRadius:12}}/><Area type="monotone" dataKey="hours" stroke="#58cdb0" fill="#58cdb0" fillOpacity={.12}/></AreaChart></ResponsiveContainer></div></div></>}
-function SettingsPage(){return <><SectionHead eyebrow="PREFERENCES" title="Settings" copy="Shape FocusLock around the way you learn best."/><div className="glass max-w-2xl rounded-2xl p-6"><div className="flex flex-col gap-5">{[["Daily learning goal","4 hours"],["Preferred session duration","25 minutes"],["Quiz passing threshold","80%"]].map(([l,v])=><label className="flex items-center justify-between gap-4 border-b border-white/6 pb-5 text-sm" key={l}><span className="text-slate-300">{l}</span><select className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-slate-200"><option>{v}</option><option>30 minutes</option><option>90%</option></select></label>)}<label className="flex items-center justify-between text-sm"><span><span className="block text-slate-300">Focus Guardian</span><span className="text-xs text-slate-500">The Chrome extension is not connected.</span></span><span className="rounded-full bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200">Not connected</span></label></div><button className="mt-7 rounded-xl bg-gradient-to-r from-violet-500 to-blue-500 px-5 py-3 text-sm font-semibold">Save preferences</button></div></>}
+function SettingsPage({ status, onRefresh }: { status?: ExtensionStatus; onRefresh?: () => void }) {
+  const connectionState = status?.state ?? "not_detected";
+
+  const getStatusDisplay = () => {
+    switch (connectionState) {
+      case "authenticated":
+        return {
+          label: "Connected",
+          desc: "Connected and authenticated. Focus Guardian is protecting your sessions.",
+          badgeClass: "bg-emerald-400/10 text-emerald-300",
+        };
+      case "auth_required":
+        return {
+          label: "Action required",
+          desc: "Extension detected. Please open the FocusLock Guardian popup to sign in.",
+          badgeClass: "bg-amber-400/10 text-amber-200",
+        };
+      case "unavailable":
+        return {
+          label: "Unavailable",
+          desc: "Connection status is currently unavailable or timed out.",
+          badgeClass: "bg-amber-400/10 text-amber-200",
+        };
+      case "checking":
+        return {
+          label: "Checking…",
+          desc: "Checking Chrome extension connection status…",
+          badgeClass: "bg-white/10 text-slate-300",
+        };
+      case "not_detected":
+      default:
+        return {
+          label: "Not connected",
+          desc: "The Chrome extension is not detected in this browser.",
+          badgeClass: "bg-amber-400/10 text-amber-200",
+        };
+    }
+  };
+
+  const info = getStatusDisplay();
+
+  return (
+    <>
+      <SectionHead eyebrow="PREFERENCES" title="Settings" copy="Shape FocusLock around the way you learn best." />
+      <div className="glass max-w-2xl rounded-2xl p-6">
+        <div className="flex flex-col gap-5">
+          {[
+            ["Daily learning goal", "4 hours"],
+            ["Preferred session duration", "25 minutes"],
+            ["Quiz passing threshold", "80%"],
+          ].map(([l, v]) => (
+            <label className="flex items-center justify-between gap-4 border-b border-white/6 pb-5 text-sm" key={l}>
+              <span className="text-slate-300">{l}</span>
+              <select className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-slate-200">
+                <option>{v}</option>
+                <option>30 minutes</option>
+                <option>90%</option>
+              </select>
+            </label>
+          ))}
+          <div className="flex items-center justify-between text-sm">
+            <span>
+              <span className="block text-slate-300">Focus Guardian</span>
+              <span className="text-xs text-slate-500">{info.desc}</span>
+            </span>
+            <div className="flex items-center gap-2">
+              <span className={`rounded-full px-3 py-1.5 text-xs font-medium ${info.badgeClass}`}>
+                {info.label}
+              </span>
+              {onRefresh && (
+                <button
+                  type="button"
+                  onClick={onRefresh}
+                  title="Refresh extension status"
+                  className="rounded-lg border border-white/10 bg-white/5 p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-slate-200"
+                >
+                  <RotateCw className={`size-3.5 ${connectionState === "checking" ? "animate-spin text-violet-300" : ""}`} />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+        <button className="mt-7 rounded-xl bg-gradient-to-r from-violet-500 to-blue-500 px-5 py-3 text-sm font-semibold">
+          Save preferences
+        </button>
+      </div>
+    </>
+  );
+}

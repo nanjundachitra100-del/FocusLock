@@ -16,6 +16,12 @@ export async function proxy(request: NextRequest) {
   const supabaseConfig = getSupabasePublicConfig();
 
   if (!supabaseConfig) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "Supabase configuration is missing." },
+        { status: 500 },
+      );
+    }
     if (isPublicPath) return NextResponse.next();
 
     const loginUrl = new URL("/login", request.url);
@@ -72,6 +78,9 @@ export async function proxy(request: NextRequest) {
   }
 
   if (error || !data.user) {
+    if (pathname.startsWith("/api/")) {
+      return response;
+    }
     const loginUrl = new URL("/login", request.url);
     if (error) loginUrl.searchParams.set("error", "session");
     return redirectWithCookies(loginUrl);

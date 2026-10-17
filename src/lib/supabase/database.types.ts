@@ -91,11 +91,61 @@ export type Database = {
         },
         never
       >;
+      entertainment_sessions: Table<
+        {
+          id: string;
+          user_id: string;
+          minutes: number;
+          started_at: string;
+          expires_at: string;
+          ended_at: string | null;
+          status: "active" | "completed" | "expired" | "abandoned";
+          created_at: string;
+        },
+        {
+          id?: string;
+          user_id: string;
+          minutes: number;
+          started_at?: string;
+          expires_at: string;
+          ended_at?: string | null;
+          status?: "active" | "completed" | "expired" | "abandoned";
+          created_at?: string;
+        },
+        {
+          ended_at?: string | null;
+          status?: "active" | "completed" | "expired" | "abandoned";
+        }
+      >;
+      user_blocked_sites: Table<
+        {
+          id: string;
+          user_id: string;
+          domain: string;
+          enabled: boolean;
+          created_at: string;
+          updated_at: string;
+        },
+        {
+          id?: string;
+          user_id: string;
+          domain: string;
+          enabled?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        },
+        {
+          domain?: string;
+          enabled?: boolean;
+          updated_at?: string;
+        }
+      >;
     };
     Views: Record<string, never>;
     Functions: {
       record_quiz_attempt_and_reward: {
         Args: {
+          p_user_id: string;
           p_quiz_id: string;
           p_score: number;
           p_total_questions: number;
@@ -108,6 +158,30 @@ export type Database = {
           total_questions: number;
           reward_minutes: number;
           available_minutes: number;
+        };
+      };
+      spend_reward_minutes: {
+        Args: {
+          p_minutes: number;
+          p_session_id?: string | null;
+        };
+        Returns: {
+          session_id: string;
+          minutes: number;
+          started_at: string;
+          expires_at: string;
+          status: string;
+          available_minutes: number;
+        };
+      };
+      end_entertainment_session: {
+        Args: {
+          p_session_id: string;
+        };
+        Returns: {
+          session_id: string;
+          status: string;
+          ended_at: string;
         };
       };
     };

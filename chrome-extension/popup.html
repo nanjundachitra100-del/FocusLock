@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>FocusLock Guardian</title>
+    <link rel="stylesheet" href="popup.css">
+    <script src="popup.js" type="module"></script>
+  </head>
+  <body>
+    <main class="panel">
+      <header class="header">
+        <div class="brand-mark" aria-hidden="true">F</div>
+        <div>
+          <p class="eyebrow">FOCUSLOCK</p>
+          <h1>Guardian</h1>
+        </div>
+      </header>
+
+      <section class="connection-card" aria-live="polite">
+        <span id="connection-indicator" class="indicator" aria-hidden="true"></span>
+        <div>
+          <p class="card-label">Connection</p>
+          <p id="connection-status" class="connection-status">Loading status…</p>
+        </div>
+        <button id="refresh-button" class="icon-button" type="button" aria-label="Refresh status" title="Refresh status">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20 7v5h-5M4 17v-5h5"></path>
+            <path d="M5.6 9a7 7 0 0 1 11.6-2L20 12M4 12l2.8 5a7 7 0 0 0 11.6-2"></path>
+          </svg>
+        </button>
+      </section>
+
+      <section class="metrics" aria-label="FocusLock account status">
+        <article class="metric-card">
+          <p class="card-label">Available rewards</p>
+          <p class="metric-value"><span id="available-minutes">—</span><span class="metric-unit">min</span></p>
+          <p class="metric-caption">Reward minutes</p>
+        </article>
+        <article class="metric-card session-card">
+          <p class="card-label">Current session</p>
+          <p id="session-status" class="session-value">Loading…</p>
+          <p id="session-caption" class="metric-caption">Session status</p>
+        </article>
+      </section>
+
+      <section id="unlock-panel" class="unlock-panel" hidden>
+        <p id="unlock-limit" class="unlock-limit"></p>
+        <label for="unlock-duration">Unlock duration</label>
+        <div class="unlock-row">
+          <select id="unlock-duration" name="requestedMinutes"></select>
+          <span>minutes</span>
+        </div>
+        <button id="start-session-button" class="primary-button" type="button">Unlock websites</button>
+        <button id="end-session-button" class="secondary-button" type="button" hidden>End session now</button>
+      </section>
+
+      <p id="status-message" class="status-message" role="status">Checking your FocusLock account…</p>
+      <p id="blocking-message" class="blocking-message" role="status" hidden></p>
+      <button id="enable-blocking-button" class="secondary-button blocking-permission-button" type="button" hidden>
+        Enable website blocking
+      </button>
+
+      <section id="setup-panel" class="form-panel" hidden>
+        <h2>Connect your FocusLock project</h2>
+        <p class="form-help">Use the public URL and publishable key from your project configuration. Never enter a service-role or secret key.</p>
+        <form id="config-form">
+          <label for="backend-url">FocusLock backend URL</label>
+          <input id="backend-url" name="backendUrl" type="url" value="http://localhost:3000" autocomplete="url" required>
+          <label for="supabase-url">Supabase project URL</label>
+          <input id="supabase-url" name="supabaseUrl" type="url" placeholder="https://your-project.supabase.co" autocomplete="url" required>
+          <label for="publishable-key">Supabase publishable key</label>
+          <input id="publishable-key" name="publishableKey" type="text" autocomplete="off" spellcheck="false" required>
+          <button id="save-config-button" class="primary-button" type="submit">Save project settings</button>
+        </form>
+        <button id="edit-config-button" class="secondary-button" type="button" hidden>Edit connection settings</button>
+      </section>
+
+      <section id="auth-panel" class="form-panel" hidden>
+        <h2 id="auth-title">Sign in to FocusLock</h2>
+        <form id="sign-in-form">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="username" required>
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <button id="sign-in-button" class="primary-button" type="submit">Sign in</button>
+        </form>
+        <button id="sign-out-button" class="secondary-button" type="button" hidden>Sign out</button>
+      </section>
+
+      <a id="dashboard-link" class="dashboard-link" href="http://localhost:3000/" target="_blank" rel="noreferrer">
+        Open FocusLock dashboard
+        <span aria-hidden="true">↗</span>
+      </a>
+      <p class="footer-note">Your focus, protected.</p>
+    </main>
+  </body>
+</html>

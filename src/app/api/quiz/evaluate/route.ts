@@ -130,13 +130,11 @@ export async function POST(request: NextRequest) {
       ? focusSessionId.trim()
       : null;
 
-  const persistResult = await persistQuizAttemptAndReward(supabase, {
+  const persistResult = await persistQuizAttemptAndReward({
     userId: authUser.id,
     quizId,
     score,
     totalQuestions,
-    passed,
-    rewardMinutes,
     focusSessionId: safeFocusSessionId,
   });
 
@@ -147,6 +145,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (!persistResult.success) {
+    return NextResponse.json(
+      { error: persistResult.error, code: persistResult.code },
+      { status: 503 },
+    );
+  }
+
   const responsePayload: EvaluateQuizResponse = {
     quizId,
     topic,
@@ -154,12 +159,11 @@ export async function POST(request: NextRequest) {
     totalQuestions,
     percentage,
     passed,
-    rewardMinutes,
-    rewardEarned: passed && persistResult.success,
+    rewardMinutes: persistResult.rewardMinutes,
+    rewardEarned: persistResult.rewardMinutes > 0,
     questions: questionResults,
-    persisted: persistResult.success,
-    persistenceError: !persistResult.success ? persistResult.error : undefined,
-    availableMinutes: persistResult.success ? persistResult.availableMinutes : undefined,
+    persisted: true,
+    availableMinutes: persistResult.availableMinutes,
   };
 
   return NextResponse.json(responsePayload, { status: 200 });
