@@ -100,6 +100,60 @@ describe("extension blocked-site matching", () => {
     expect(normalizeHostname("https://sub.example.org")).toBe("sub.example.org");
   });
 
+  it("blocks custom domains and requests their Chrome host permissions", async () => {
+    const customSites = [{ domain: "snapchat.com", enabled: true }];
+    expect(getHostPermissionOrigins(customSites)).toEqual(["*://*.snapchat.com/*"]);
+    const permissionScoped = await getPermissionScopedSites(customSites, [], async () => true);
+    expect(permissionScoped?.sites).toEqual(customSites);
+    const plan = buildBlockingRules({ sites: permissionScoped!.sites, now });
+    expect(plan?.blockRules[0].condition.urlFilter).toBe("||snapchat.com^");
+    expect(matchesBlockedSite("https://www.snapchat.com/", customSites)).toBe(true);
+    expect(matchesBlockedSite("http://web.snapchat.com/", customSites)).toBe(true);
+    expect(matchesBlockedSite("https://notsnapchat.com/", customSites)).toBe(false);
+  });
+
+  it("does not install a custom-site rule when permission is denied and requests it again", async () => {
+    const customSites = [{ domain: "pinterest.com", enabled: true }];
+    const denied = await getPermissionScopedSites(customSites, [], async () => false);
+    expect(denied).toEqual({
+      sites: [],
+      missingOrigins: ["*://*.pinterest.com/*"],
+    });
+    expect(buildBlockingRules({ sites: denied!.sites, now })?.blockRules).toEqual([]);
+
+    const granted = await getPermissionScopedSites(customSites, [], async () => true);
+    expect(granted?.missingOrigins).toEqual([]);
+    expect(buildBlockingRules({ sites: granted!.sites, now })?.blockRules).toEqual([
+      expect.objectContaining({ condition: expect.objectContaining({ urlFilter: "||pinterest.com^" }) }),
+    ]);
+  });
+
+  it("replaces existing DNR rules with newly synchronized custom-site rules", async () => {
+    let dynamicRules = [{
+      id: BLOCK_RULE_ID_START,
+      priority: 1,
+      action: { type: "redirect", redirect: { extensionPath: "/blocked.html" } },
+      condition: { urlFilter: "||youtube.com^", resourceTypes: ["main_frame"] },
+    }];
+    let sessionRules = [];
+    const dnr = {
+      getDynamicRules: vi.fn(async () => dynamicRules),
+      getSessionRules: vi.fn(async () => sessionRules),
+      updateDynamicRules: vi.fn(async ({ removeRuleIds, addRules }) => {
+        dynamicRules = dynamicRules.filter((rule) => !removeRuleIds.includes(rule.id)).concat(addRules);
+      }),
+      updateSessionRules: vi.fn(async ({ removeRuleIds, addRules }) => {
+        sessionRules = sessionRules.filter((rule) => !removeRuleIds.includes(rule.id)).concat(addRules);
+      }),
+    };
+    const sites = [{ domain: "snapchat.com", enabled: true }];
+    const plan = buildBlockingRules({ sites, now });
+    await reconcileDynamicRules(dnr, plan!);
+
+    expect(dynamicRules).toEqual(plan!.blockRules);
+    expect(dynamicRules[0].condition.urlFilter).toBe("||snapchat.com^");
+  });
+
   it("rejects malformed hosts and unsupported URL schemes", () => {
     for (const value of [
       "",
@@ -114,6 +168,9 @@ describe("extension blocked-site matching", () => {
       "https://user:pass@youtube.com/",
       "https://youtube.com/path",
       "*.youtube.com",
+      "localhost",
+      "foo.localhost",
+      "127.0.0.1",
     ]) {
       expect(normalizeHostname(value), value).toBeNull();
     }
@@ -256,6 +313,18 @@ describe("extension dynamic blocking rules", () => {
     expect(expired?.allowRules).toEqual([]);
     expect(unknown?.allowRules).toEqual([]);
     expect(nearExpiry?.allowRules).toEqual([]);
+  });
+
+  it("restores blocking when an approved five-minute session reaches expiry", () => {
+    const startedAt = new Date(now).toISOString();
+    const expiresAt = new Date(now + 5 * 60_000).toISOString();
+    const session = { ...activeSession(expiresAt), minutes: 5, startedAt };
+    const beforeExpiry = buildBlockingRules({ sites: validSites, session, now });
+    const atExpiry = buildBlockingRules({ sites: validSites, session, now: Date.parse(expiresAt) });
+
+    expect(beforeExpiry?.allowRules).toHaveLength(2);
+    expect(atExpiry?.blockRules).toHaveLength(2);
+    expect(atExpiry?.allowRules).toEqual([]);
   });
 
   it("excludes FocusLock domains and rejects malformed configuration", () => {

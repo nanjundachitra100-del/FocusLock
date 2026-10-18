@@ -184,6 +184,17 @@ export type Database = {
           ended_at: string;
         };
       };
+      replace_user_blocked_sites: {
+        Args: {
+          p_sites: { domain: string; enabled: boolean }[];
+        };
+        Returns: {
+          sites: {
+            domain: string;
+            enabled: boolean;
+          }[];
+        };
+      };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;

@@ -434,6 +434,7 @@ describe("extension Supabase authentication client", () => {
 
     await expect(service.startSession(0)).resolves.toEqual({ state: "INVALID_DURATION" });
     await expect(service.startSession(181)).resolves.toEqual({ state: "INVALID_DURATION" });
+    await expect(service.startSession(7)).resolves.toEqual({ state: "INVALID_DURATION" });
     await expect(service.startSession("10" as never)).resolves.toEqual({ state: "INVALID_DURATION" });
     expect(fetchImpl).not.toHaveBeenCalled();
   });

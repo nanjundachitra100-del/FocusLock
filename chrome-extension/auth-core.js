@@ -1,7 +1,8 @@
+import { isSupportedSessionDuration } from "./session-duration.js";
+
 const CONFIG_KEY = "focusLockExtensionConfig";
 const REQUEST_TIMEOUT_MS = 10_000;
 const REFRESH_MARGIN_SECONDS = 60;
-const MAX_SESSION_MINUTES = 180;
 const DOMAIN_PATTERN =
   /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -476,11 +477,7 @@ export function createAuthService({
     },
 
     async startSession(requestedMinutes) {
-      if (
-        !Number.isInteger(requestedMinutes) ||
-        requestedMinutes < 1 ||
-        requestedMinutes > MAX_SESSION_MINUTES
-      ) {
+      if (!isSupportedSessionDuration(requestedMinutes)) {
         return { state: "INVALID_DURATION" };
       }
 

@@ -1,11 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authenticateExtensionRequest } from "@/lib/extension/auth";
-import { getEntertainmentStatus, saveUserBlockedSites, normalizeDomain } from "@/lib/supabase/entertainment-persistence";
+import {
+  getEntertainmentStatus,
+  saveUserBlockedSites,
+  normalizeDomain,
+  MAX_BLOCKED_SITES,
+} from "@/lib/supabase/entertainment-persistence";
 
 export const dynamic = "force-dynamic";
 
 const MAX_REQUEST_BYTES = 16 * 1024;
-const MAX_SITES = 50;
 
 type BlockedSiteInput = { domain: string; enabled: boolean };
 
@@ -70,8 +74,8 @@ function parseBlockedSites(body: unknown):
     if (!Array.isArray(object.sites)) {
       return { success: false, error: "'sites' must be an array." };
     }
-    if (object.sites.length > MAX_SITES) {
-      return { success: false, error: `No more than ${MAX_SITES} blocked sites may be submitted.` };
+    if (object.sites.length > MAX_BLOCKED_SITES) {
+      return { success: false, error: `No more than ${MAX_BLOCKED_SITES} blocked sites may be submitted.` };
     }
     inputs = object.sites;
   } else if (Object.prototype.hasOwnProperty.call(object, "domain")) {
@@ -157,12 +161,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const result = await saveUserBlockedSites(authContext.client, authContext.user.id, parsedSites.sites);
+  const result = await saveUserBlockedSites(authContext.client, parsedSites.sites);
 
   if (!result.success) {
+    const status = result.code === "VALIDATION" ? 400 : 500;
     return NextResponse.json(
       { error: result.error || "Failed to save blocked websites." },
-      { status: 500 },
+      { status },
     );
   }
 

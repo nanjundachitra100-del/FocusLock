@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/client";
 import { abandonFocusSession, completeFocusSession, createFocusSession } from "@/lib/supabase/focus-timer";
 import { AiLearningLab } from "@/components/ai-learning-lab";
 import { useExtensionStatus, type ExtensionStatus } from "@/lib/extension/status-bridge";
+import { BlockedWebsitesSettings } from "@/components/blocked-websites-settings";
 
 type Page = "Dashboard" | "Focus Missions" | "Focus Session" | "AI Learning Lab" | "Skill Tree" | "Focus Garden" | "Reward Wallet" | "Focus Insights" | "Settings";
 const nav: {label: Page; icon: React.ElementType}[] = [
@@ -544,6 +545,7 @@ function SettingsPage({ status, onRefresh }: { status?: ExtensionStatus; onRefre
           Save preferences
         </button>
       </div>
+      <BlockedWebsitesSettings status={status} onRefresh={onRefresh} />
     </>
   );
 }

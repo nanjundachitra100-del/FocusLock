@@ -4,17 +4,12 @@ if (typeof window !== "undefined") {
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "./database.types";
+import { DEFAULT_BLOCKED_DOMAINS } from "@/lib/blocked-sites/catalog";
+import { MAX_BLOCKED_SITES, normalizeBlockedWebsiteDomain } from "@/lib/blocked-sites/domain";
+import { getSupabasePublicConfig } from "./env";
+import { isSupportedSessionDuration } from "@/lib/extension/session-duration";
 
-export const DEFAULT_BLOCKED_DOMAINS = [
-  "youtube.com",
-  "instagram.com",
-  "reddit.com",
-  "x.com",
-  "twitter.com",
-  "tiktok.com",
-  "netflix.com",
-  "twitch.tv",
-];
+export { DEFAULT_BLOCKED_DOMAINS };
 
 export interface EntertainmentSessionRecord {
   id: string;
@@ -42,7 +37,7 @@ export type StartSessionResult =
   | {
       success: false;
       error: string;
-      code: "INSUFFICIENT_BALANCE" | "ACTIVE_SESSION_EXISTS" | "DUPLICATE_SESSION" | "DB_ERROR" | "MIGRATION_REQUIRED";
+      code: "INSUFFICIENT_BALANCE" | "ACTIVE_SESSION_EXISTS" | "DUPLICATE_SESSION" | "INVALID_DURATION" | "DB_ERROR" | "MIGRATION_REQUIRED";
     };
 
 export type EndSessionResult =
@@ -77,8 +72,23 @@ export interface EntertainmentStatus {
   }[];
 }
 
+export { MAX_BLOCKED_SITES };
+
+export type SaveBlockedSitesResult =
+  | {
+      success: true;
+      sites: { domain: string; enabled: boolean }[];
+    }
+  | {
+      success: false;
+      sites: [];
+      error: string;
+      code: "VALIDATION" | "DB_ERROR" | "MIGRATION_REQUIRED";
+    };
+
 type SpendRewardResponse = Database["public"]["Functions"]["spend_reward_minutes"]["Returns"];
 type EndSessionResponse = Database["public"]["Functions"]["end_entertainment_session"]["Returns"];
+type ReplaceBlockedSitesResponse = Database["public"]["Functions"]["replace_user_blocked_sites"]["Returns"];
 
 function isSpendRewardResponse(value: unknown): value is SpendRewardResponse {
   if (!value || typeof value !== "object") return false;
@@ -99,26 +109,26 @@ function isEndSessionResponse(value: unknown): value is EndSessionResponse {
     typeof result.ended_at === "string";
 }
 
+function isReplaceBlockedSitesResponse(value: unknown): value is ReplaceBlockedSitesResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const sites = (value as Record<string, unknown>).sites;
+  if (!Array.isArray(sites)) return false;
+  return sites.every((item) => {
+    if (!item || typeof item !== "object") return false;
+    const site = item as Record<string, unknown>;
+    return typeof site.domain === "string" && typeof site.enabled === "boolean";
+  });
+}
+
+function validationFailure(error: string): SaveBlockedSitesResult {
+  return { success: false, sites: [], error, code: "VALIDATION" };
+}
+
 /**
  * Normalizes a website domain string (removes protocol, www, trailing slashes).
  */
 export function normalizeDomain(rawDomain: string): string | null {
-  if (!rawDomain || typeof rawDomain !== "string") return null;
-
-  let cleaned = rawDomain.trim().toLowerCase();
-  cleaned = cleaned.replace(/^https?:\/\//i, "");
-  cleaned = cleaned.replace(/^www\./i, "");
-  cleaned = cleaned.split("/")[0].split("?")[0].split("#")[0].trim();
-
-  // Basic domain validation
-  const domainRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
-  if (
-    cleaned.length > 253 ||
-    cleaned.split(".").some((label) => label.length > 63) ||
-    !domainRegex.test(cleaned)
-  ) return null;
-
-  return cleaned;
+  return normalizeBlockedWebsiteDomain(rawDomain);
 }
 
 /**
@@ -232,11 +242,11 @@ export async function startEntertainmentSession(
 ): Promise<StartSessionResult> {
   const { minutes, sessionId } = options;
 
-  if (!Number.isInteger(minutes) || minutes <= 0) {
+  if (!isSupportedSessionDuration(minutes)) {
     return {
       success: false,
-      error: "Requested minutes must be a positive integer.",
-      code: "DB_ERROR",
+      error: "Choose 5, 10, 15, 30, or 60 minutes.",
+      code: "INVALID_DURATION",
     };
   }
 
@@ -271,6 +281,13 @@ export async function startEntertainmentSession(
           success: false,
           error: "This session ID has already been used.",
           code: "DUPLICATE_SESSION",
+        };
+      }
+      if (msg.includes("Invalid minutes")) {
+        return {
+          success: false,
+          error: "Choose 5, 10, 15, 30, or 60 minutes.",
+          code: "INVALID_DURATION",
         };
       }
       if (rpcError.code === "23505") {
@@ -405,19 +422,15 @@ export async function endEntertainmentSession(
 }
 
 /**
- * Saves or updates the user's blocked sites list.
+ * Atomically replaces the authenticated user's blocked-site list.
+ * Ownership is enforced by replace_user_blocked_sites via auth.uid().
  */
 export async function saveUserBlockedSites(
   authenticatedClient: SupabaseClient<Database>,
-  userId: string,
   domains: { domain: string; enabled: boolean }[],
-): Promise<{ success: boolean; sites: { domain: string; enabled: boolean }[]; error?: string }> {
-  if (!Array.isArray(domains) || domains.length === 0 || domains.length > 50) {
-    return {
-      success: false,
-      sites: [],
-      error: "Blocked sites must contain between 1 and 50 entries.",
-    };
+): Promise<SaveBlockedSitesResult> {
+  if (!Array.isArray(domains) || domains.length === 0 || domains.length > MAX_BLOCKED_SITES) {
+    return validationFailure("Blocked sites must contain between 1 and 50 entries.");
   }
 
   const validSites: { domain: string; enabled: boolean }[] = [];
@@ -426,12 +439,12 @@ export async function saveUserBlockedSites(
   for (const item of domains) {
     if (!item || typeof item !== "object" || typeof item.domain !== "string" ||
       (item.enabled !== undefined && typeof item.enabled !== "boolean")) {
-      return { success: false, sites: [], error: "One or more blocked site entries are invalid." };
+      return validationFailure("One or more blocked site entries are invalid.");
     }
 
     const normalized = normalizeDomain(item.domain);
     if (!normalized) {
-      return { success: false, sites: [], error: "One or more website domains are invalid." };
+      return validationFailure("One or more website domains are invalid.");
     }
     if (!seen.has(normalized)) {
       seen.add(normalized);
@@ -439,35 +452,82 @@ export async function saveUserBlockedSites(
     }
   }
 
+  if (validSites.length === 0) {
+    return validationFailure("Blocked sites must contain between 1 and 50 entries.");
+  }
+
   try {
-    const { error } = await authenticatedClient
-      .from("user_blocked_sites")
-      .upsert(
-        validSites.map((site) => ({
-          user_id: userId,
-          domain: site.domain,
-          enabled: site.enabled,
-          updated_at: new Date().toISOString(),
-        })),
-        { onConflict: "user_id,domain" },
-      );
-    if (error) {
+    const { data, error: rpcError } = await authenticatedClient.rpc(
+      "replace_user_blocked_sites",
+      { p_sites: validSites },
+    );
+    const rpcData: unknown = data;
+
+    if (rpcError) {
+      const msg = rpcError.message || "";
+      if (
+        msg.includes("must contain between 1 and 50") ||
+        msg.includes("must be a JSON array") ||
+        msg.includes("entries are invalid") ||
+        msg.includes("domains are invalid")
+      ) {
+        return validationFailure(
+          msg.includes("must contain between 1 and 50")
+            ? "Blocked sites must contain between 1 and 50 entries."
+            : msg.includes("domains are invalid")
+              ? "One or more website domains are invalid."
+              : "One or more blocked site entries are invalid.",
+        );
+      }
+      if (rpcError.code === "PGRST202" || rpcError.code === "42883") {
+        const configuredUrl = getSupabasePublicConfig()?.url;
+        const configuredProjectHost = configuredUrl ? new URL(configuredUrl).hostname : null;
+        const normalizedMessage = msg.toLowerCase();
+        const messageKind = normalizedMessage.includes("schema cache")
+          ? "schema_cache_lookup"
+          : normalizedMessage.includes("could not find the function")
+            ? "function_not_found"
+            : rpcError.code === "42883"
+              ? "postgres_undefined_function"
+              : "unclassified";
+        console.error(
+          `Blocked-site RPC resolution failure: rpc=replace_user_blocked_sites code=${rpcError.code} project=${configuredProjectHost ?? "unknown"} messageKind=${messageKind}`,
+        );
+        return {
+          success: false,
+          sites: [],
+          error: "Database migration required: replace_user_blocked_sites RPC is not installed.",
+          code: "MIGRATION_REQUIRED",
+        };
+      }
+
       return {
         success: false,
         sites: [],
         error: "Failed to update blocked sites.",
+        code: "DB_ERROR",
+      };
+    }
+
+    if (!isReplaceBlockedSitesResponse(rpcData)) {
+      return {
+        success: false,
+        sites: [],
+        error: "Failed to update blocked sites.",
+        code: "DB_ERROR",
       };
     }
 
     return {
       success: true,
-      sites: validSites,
+      sites: rpcData.sites,
     };
   } catch {
     return {
       success: false,
       sites: [],
       error: "Failed to update blocked sites.",
+      code: "DB_ERROR",
     };
   }
 }

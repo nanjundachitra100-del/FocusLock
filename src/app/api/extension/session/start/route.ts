@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { authenticateExtensionRequest } from "@/lib/extension/auth";
 import { startEntertainmentSession } from "@/lib/supabase/entertainment-persistence";
+import { isSupportedSessionDuration } from "@/lib/extension/session-duration";
 
 export const dynamic = "force-dynamic";
 
@@ -32,13 +33,10 @@ export async function POST(request: NextRequest) {
   const { requestedMinutes, sessionId } = body as { requestedMinutes?: unknown; sessionId?: unknown };
 
   if (
-    typeof requestedMinutes !== "number" ||
-    !Number.isInteger(requestedMinutes) ||
-    requestedMinutes <= 0 ||
-    requestedMinutes > 180
+    !isSupportedSessionDuration(requestedMinutes)
   ) {
     return NextResponse.json(
-      { error: "Invalid 'requestedMinutes'. Must be an integer between 1 and 180." },
+      { error: "Invalid 'requestedMinutes'. Choose 5, 10, 15, 30, or 60 minutes.", code: "INVALID_DURATION" },
       { status: 400 },
     );
   }
@@ -61,6 +59,8 @@ export async function POST(request: NextRequest) {
     let statusCode = 400;
     if (result.code === "ACTIVE_SESSION_EXISTS" || result.code === "DUPLICATE_SESSION") {
       statusCode = 409;
+    } else if (result.code === "INVALID_DURATION") {
+      statusCode = 400;
     } else if (result.code === "DB_ERROR" || result.code === "MIGRATION_REQUIRED") {
       statusCode = 500;
     }

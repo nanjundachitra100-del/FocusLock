@@ -2,6 +2,13 @@ import {
   isValidConfigResponse,
   sendRuntimeMessage,
 } from "./runtime-messaging.js";
+import {
+  DEFAULT_SESSION_DURATION,
+  SUPPORTED_SESSION_DURATIONS,
+  durationIsAffordable,
+  loadPreferredSessionDuration,
+  savePreferredSessionDuration,
+} from "./session-duration.js";
 
 const connectionStatus = document.getElementById("connection-status");
 const connectionIndicator = document.getElementById("connection-indicator");
@@ -29,9 +36,8 @@ const startSessionButton = document.getElementById("start-session-button");
 const endSessionButton = document.getElementById("end-session-button");
 let missingHostOrigins = [];
 let sessionCountdown = null;
-const MAX_SESSION_MINUTES = 180;
-const MIN_USABLE_SESSION_MINUTES = 2;
-const DURATION_CHOICES = [5, 10, 15, 30, 60, 90, 120, 180];
+let preferredUnlockDuration = DEFAULT_SESSION_DURATION;
+let currentAvailableMinutes = null;
 const CONFIG_ERROR_MESSAGES = {
   INVALID_CONFIG: "Configuration is incomplete. Check all three project settings.",
   INVALID_SUPABASE_URL: "Enter a valid HTTPS Supabase project URL without a path, query, or credentials.",
@@ -130,26 +136,22 @@ function renderUnlockControls(status) {
 
   unlockDuration.hidden = false;
   unlockPanel.querySelector("label").hidden = false;
-  const maximum = Math.min(MAX_SESSION_MINUTES, Math.floor(status.availableMinutes));
-  unlockLimit.textContent = maximum >= MIN_USABLE_SESSION_MINUTES
-    ? `Maximum available now: ${maximum} minutes (180-minute server limit; access stops with 1 minute left for safety).`
-    : maximum === 1
-      ? "1 reward minute is available, but an unlock needs at least 2 minutes because access stops with 1 minute left for safety."
-    : "No reward minutes are currently available.";
+  currentAvailableMinutes = Number.isFinite(status.availableMinutes)
+    ? Math.max(0, status.availableMinutes)
+    : 0;
+  unlockLimit.textContent = `${currentAvailableMinutes} earned entertainment minutes are available. Durations above this balance are disabled.`;
   unlockDuration.replaceChildren();
-
-  const choices = DURATION_CHOICES.filter(
-    (minutes) => minutes >= MIN_USABLE_SESSION_MINUTES && minutes <= maximum,
-  );
-  if (maximum >= MIN_USABLE_SESSION_MINUTES && !choices.includes(maximum)) choices.push(maximum);
-  choices.sort((left, right) => left - right);
-  for (const minutes of choices) {
+  for (const minutes of SUPPORTED_SESSION_DURATIONS) {
     const option = document.createElement("option");
     option.value = String(minutes);
-    option.textContent = String(minutes);
+    option.disabled = !durationIsAffordable(minutes, currentAvailableMinutes);
+    option.textContent = option.disabled
+      ? `${minutes} minutes (requires ${minutes} earned minutes)`
+      : `${minutes} minutes`;
     unlockDuration.append(option);
   }
-  startSessionButton.disabled = maximum < MIN_USABLE_SESSION_MINUTES;
+  unlockDuration.value = String(preferredUnlockDuration);
+  startSessionButton.disabled = !durationIsAffordable(preferredUnlockDuration, currentAvailableMinutes);
 }
 
 function showState(result) {
@@ -401,8 +403,8 @@ refreshButton.addEventListener("click", refreshStatus);
 
 startSessionButton.addEventListener("click", async () => {
   const requestedMinutes = Number(unlockDuration.value);
-  if (!Number.isInteger(requestedMinutes) || requestedMinutes < 1 || requestedMinutes > MAX_SESSION_MINUTES) {
-    statusMessage.textContent = "Choose a valid unlock duration.";
+  if (!durationIsAffordable(requestedMinutes, currentAvailableMinutes)) {
+    statusMessage.textContent = "That unlock duration exceeds your currently available earned time.";
     return;
   }
 
@@ -444,8 +446,17 @@ endSessionButton.addEventListener("click", async () => {
   }
 });
 
+unlockDuration.addEventListener("change", () => {
+  const value = Number(unlockDuration.value);
+  if (!SUPPORTED_SESSION_DURATIONS.includes(value)) return;
+  preferredUnlockDuration = value;
+  void savePreferredSessionDuration(chrome.storage.local, value);
+  startSessionButton.disabled = !durationIsAffordable(value, currentAvailableMinutes);
+});
+
 async function initializePopup() {
   try {
+    preferredUnlockDuration = await loadPreferredSessionDuration(chrome.storage.local);
     const config = await sendMessage("GET_CONFIG");
     if (!config?.configured) {
       setupPanel.hidden = false;

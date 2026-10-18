@@ -51,6 +51,9 @@ export function normalizeHostname(input) {
   hostname = hostname.toLowerCase().replace(/\.$/, "");
   if (hostname.startsWith("www.")) hostname = hostname.slice(4);
   if (
+    hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
+    /^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname) ||
     !HOST_PATTERN.test(hostname) ||
     hostname.split(".").some((label) => label.length > 63)
   ) {
