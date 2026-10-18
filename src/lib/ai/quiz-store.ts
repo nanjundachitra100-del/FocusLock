@@ -1,4 +1,4 @@
-﻿if (typeof window !== "undefined") {
+if (typeof window !== "undefined") {
   throw new Error("This module can only be executed on the server.");
 }
 import { createCipheriv, createDecipheriv, randomBytes, createHash } from "node:crypto";

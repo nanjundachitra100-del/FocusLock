@@ -1,4 +1,4 @@
-﻿export interface ServerQuizQuestion {
+export interface ServerQuizQuestion {
   id: number;
   question: string;
   options: [string, string, string, string];
@@ -25,105 +25,94 @@ export type ValidationResult =
   | { success: true; questions: ServerQuizQuestion[] }
   | { success: false; error: string };
 
-function isQuizCandidate(val: unknown): boolean {
-  if (Array.isArray(val)) {
-    return val.length > 0 && val.some((item) => item && typeof item === "object" && "question" in item);
+function isQuizCandidate(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(
+      (item) => item !== null && typeof item === "object" && "question" in item,
+    );
   }
-  if (val && typeof val === "object" && "questions" in val) {
-    const q = (val as { questions: unknown }).questions;
-    return Array.isArray(q) && q.some((item) => item && typeof item === "object" && "question" in item);
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "questions" in value &&
+    Array.isArray((value as { questions: unknown }).questions)
+  );
+}
+
+function findJsonEnd(text: string, start: number): number | null {
+  const closingFor: Record<string, string> = { "{": "}", "[": "]" };
+  const expectedClosings: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index++) {
+    const character = text[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+    } else if (character === "{" || character === "[") {
+      expectedClosings.push(closingFor[character]);
+    } else if (character === "}" || character === "]") {
+      if (expectedClosings.pop() !== character) {
+        return null;
+      }
+      if (expectedClosings.length === 0) {
+        return index;
+      }
+    }
   }
-  return false;
+
+  return null;
 }
 
 /**
- * Safely parses JSON from model output handling:
- * 1. Direct raw JSON
- * 2. Markdown code fences (```json ... ```)
- * 3. Preceding or following commentary/thinking text without breaking on stray brackets
+ * Extracts a balanced JSON object or array from direct, fenced, or prose-wrapped output.
  */
 export function extractJsonFromText(rawText: string): unknown {
   const trimmed = rawText.trim();
+  let firstJson: unknown;
+  let foundJson = false;
 
-  // 1. Direct parse attempt
-  try {
-    const direct = JSON.parse(trimmed);
-    if (isQuizCandidate(direct)) {
-      return direct;
-    }
-  } catch {}
+  for (let start = 0; start < trimmed.length; start++) {
+    if (trimmed[start] !== "[" && trimmed[start] !== "{") continue;
+    const end = findJsonEnd(trimmed, start);
+    if (end === null) continue;
 
-  // 2. Search all markdown code fences
-  const fenceRegex = /```(?:json)?\s*([\s\S]*?)\s*```/gi;
-  let fenceMatch: RegExpExecArray | null;
-  while ((fenceMatch = fenceRegex.exec(trimmed)) !== null) {
-    const blockContent = fenceMatch[1].trim();
     try {
-      const parsed = JSON.parse(blockContent);
+      const parsed: unknown = JSON.parse(trimmed.slice(start, end + 1));
       if (isQuizCandidate(parsed)) {
         return parsed;
       }
-    } catch {}
-  }
-
-  // 3. Balanced bracket/brace scanner
-  // Scans for candidate array '[' or object '{' blocks, tracking depth while
-  // respecting quotes and escape sequences.
-  for (let i = 0; i < trimmed.length; i++) {
-    const char = trimmed[i];
-    if (char !== "[" && char !== "{") continue;
-
-    const isArray = char === "[";
-    const closingChar = isArray ? "]" : "}";
-    let depth = 0;
-    let inString = false;
-    let escapeNext = false;
-
-    for (let j = i; j < trimmed.length; j++) {
-      const c = trimmed[j];
-
-      if (escapeNext) {
-        escapeNext = false;
-        continue;
+      if (!foundJson) {
+        firstJson = parsed;
+        foundJson = true;
       }
-
-      if (c === "\\") {
-        escapeNext = true;
-        continue;
-      }
-
-      if (c === '"') {
-        inString = !inString;
-        continue;
-      }
-
-      if (!inString) {
-        if (c === char) {
-          depth++;
-        } else if (c === closingChar) {
-          depth--;
-          if (depth === 0) {
-            const candidate = trimmed.substring(i, j + 1);
-            try {
-              const parsed = JSON.parse(candidate);
-              if (isQuizCandidate(parsed)) {
-                return parsed;
-              }
-            } catch {}
-            break;
-          }
-        }
-      }
+    } catch {
+      // The surrounding model text can contain unmatched or non-JSON brackets.
     }
   }
 
+  if (foundJson) return firstJson;
   throw new Error("Unable to locate a valid JSON questions array in the model response.");
 }
 
 /**
- * Validates that the generated data strictly matches the 5-question multiple choice schema.
+ * Validates that the generated data matches the requested multiple-choice quiz schema.
  */
-export function validateGeneratedQuiz(rawInput: string): ValidationResult {
+export function validateGeneratedQuiz(
+  rawInput: string,
+  expectedQuestionCount = 5,
+): ValidationResult {
   let parsed: unknown;
 
   try {
@@ -153,10 +142,10 @@ export function validateGeneratedQuiz(rawInput: string): ValidationResult {
     };
   }
 
-  if (questionList.length !== 5) {
+  if (questionList.length !== expectedQuestionCount) {
     return {
       success: false,
-      error: `Quiz must have exactly 5 questions; found ${questionList.length}.`,
+      error: `Quiz must have exactly ${expectedQuestionCount} questions; found ${questionList.length}.`,
     };
   }
 
@@ -187,14 +176,21 @@ export function validateGeneratedQuiz(rawInput: string): ValidationResult {
       };
     }
 
-    const cleanOptions = record.options
-      .map((opt) => (typeof opt === "string" ? opt.trim() : ""))
-      .filter((opt) => opt.length > 0);
+    const cleanOptions = record.options.map((opt) =>
+      typeof opt === "string" ? opt.trim() : "",
+    );
 
-    if (cleanOptions.length !== 4) {
+    if (cleanOptions.length !== 4 || cleanOptions.some((option) => !option)) {
       return {
         success: false,
-        error: `Question at index ${i} must have exactly 4 non-empty options; found ${cleanOptions.length}.`,
+        error: `Question at index ${i} must have exactly 4 non-empty options.`,
+      };
+    }
+
+    if (new Set(cleanOptions.map((option) => option.toLowerCase())).size !== 4) {
+      return {
+        success: false,
+        error: `Question at index ${i} must have 4 distinct options.`,
       };
     }
 
@@ -220,11 +216,15 @@ export function validateGeneratedQuiz(rawInput: string): ValidationResult {
       };
     }
 
-    // Explanation
+    // Explanation is required
     const explanation =
-      typeof record.explanation === "string" && record.explanation.trim()
-        ? record.explanation.trim()
-        : `Option "${optionMatch}" is the correct answer based on the study notes.`;
+      typeof record.explanation === "string" ? record.explanation.trim() : "";
+    if (!explanation) {
+      return {
+        success: false,
+        error: `Question at index ${i} is missing an explanation.`,
+      };
+    }
 
     validatedQuestions.push({
       id: i,
@@ -276,4 +276,3 @@ export interface QuizEvaluationResult {
   persistenceError?: string;
   availableMinutes?: number;
 }
-

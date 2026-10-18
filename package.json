@@ -5,10 +5,14 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:extension": "esbuild chrome-extension/supabase-sdk-entry.js --bundle --format=esm --platform=browser --target=chrome120 --outfile=chrome-extension/supabase.js",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.118.0",
     "@tailwindcss/postcss": "latest",
     "@types/three": "^0.186.0",
     "lucide-react": "latest",
@@ -22,8 +26,10 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "esbuild": "^0.28.2",
     "postcss": "latest",
     "tailwindcss": "latest",
-    "typescript": "latest"
+    "typescript": "latest",
+    "vitest": "^5.0.5"
   }
 }

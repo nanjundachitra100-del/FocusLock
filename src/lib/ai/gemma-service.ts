@@ -1,7 +1,7 @@
-﻿if (typeof window !== "undefined") {
+if (typeof window !== "undefined") {
   throw new Error("This module can only be executed on the server.");
 }
-import { getGemmaApiKey, getGemmaConfig, DEFAULT_GEMMA_MODEL } from "./gemma-config";
+import { getGemmaApiKey, getGemmaConfig } from "./gemma-config";
 import {
   type ServerQuizQuestion,
   validateGeneratedQuiz,
@@ -31,6 +31,7 @@ export type GenerateQuizResult =
 
 /**
  * Builds the instruction prompt for Gemma 4.
+ * Uses the detailed HEAD prompt for better quiz quality and reliability.
  */
 function buildGemmaPrompt(
   notes: string,
@@ -95,8 +96,8 @@ async function sleep(ms: number): Promise<void> {
 /**
  * Calls the Gemma 4 API with strict limits:
  * - At most 1 single retry on transient error or invalid output
- * - Bounded timeout per attempt (max 45s)
- * - Increased maxOutputTokens to prevent truncation on large notes
+ * - Bounded timeout per attempt and total generation budget
+ * - Output-token limit scales with the requested question count
  */
 export async function generateQuizWithGemma(
   options: GenerateQuizOptions,
@@ -107,6 +108,14 @@ export async function generateQuizWithGemma(
     return {
       success: false,
       error: "Study notes are too short. Please provide at least 20 characters of study material.",
+      code: "INVALID_INPUT",
+    };
+  }
+
+  if (!Number.isInteger(questionCount) || questionCount < 1 || questionCount > 10) {
+    return {
+      success: false,
+      error: "Question count must be an integer between 1 and 10.",
       code: "INVALID_INPUT",
     };
   }
@@ -166,7 +175,7 @@ export async function generateQuizWithGemma(
           generationConfig: {
             temperature: isRetry ? 0.1 : 0.2,
             topP: 0.9,
-            maxOutputTokens: 3072, // Prevent truncation on long notes
+            maxOutputTokens: Math.min(3072, 256 + questionCount * 320),
             responseMimeType: "application/json",
           },
         }),
@@ -224,7 +233,12 @@ export async function generateQuizWithGemma(
       };
 
       const candidate = responseData.candidates?.[0];
-      const rawText = candidate?.content?.parts?.[0]?.text || "";
+      // Join all parts to handle multi-part responses
+      const rawText =
+        candidate?.content?.parts
+          ?.map((part) => part.text || "")
+          .filter(Boolean)
+          .join("") || "";
 
       if (!rawText.trim()) {
         lastError = "Gemma returned an empty response. Please verify your study notes content.";
@@ -235,8 +249,8 @@ export async function generateQuizWithGemma(
         break;
       }
 
-      // Validate parsed JSON strictly
-      const validation = validateGeneratedQuiz(rawText);
+      // Validate parsed JSON strictly, passing the expected question count
+      const validation = validateGeneratedQuiz(rawText, questionCount);
       if (!validation.success) {
         lastError = `Gemma output failed validation: ${validation.error}`;
         lastCode = "PARSE_ERROR";

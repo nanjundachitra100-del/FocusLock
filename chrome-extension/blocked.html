@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>FocusLock Guardian</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #081426;
+        color: #edf5ff;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        display: grid;
+        min-height: 100vh;
+        place-items: center;
+        margin: 0;
+        padding: 24px;
+        background: radial-gradient(ellipse at 50% 20%, rgb(22 91 153 / 24%), transparent 48%), #081426;
+      }
+
+      main {
+        width: min(100%, 430px);
+        padding: 38px 32px;
+        border: 1px solid #203550;
+        border-radius: 20px;
+        background: linear-gradient(145deg, #132740, #0d1d31);
+        text-align: center;
+      }
+
+      .mark {
+        display: grid;
+        width: 56px;
+        height: 56px;
+        place-items: center;
+        margin: 0 auto 21px;
+        border: 1px solid rgb(68 197 255 / 45%);
+        border-radius: 17px;
+        background: linear-gradient(145deg, #123c65, #10233d);
+        color: #7edaff;
+        font-size: 25px;
+        font-weight: 750;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: #55c9ff;
+        font-size: 10px;
+        font-weight: 750;
+        letter-spacing: 0.17em;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 25px;
+        letter-spacing: -0.035em;
+      }
+
+      .copy {
+        margin: 14px 0 25px;
+        color: #a1b4cb;
+        font-size: 14px;
+        line-height: 1.65;
+      }
+
+      a,
+      button {
+        display: inline-flex;
+        min-height: 45px;
+        align-items: center;
+        justify-content: center;
+        padding: 0 18px;
+        border: 1px solid rgb(67 196 255 / 42%);
+        border-radius: 10px;
+        background: linear-gradient(100deg, #12436a, #115276);
+        color: #effaff;
+        font-size: 13px;
+        font-weight: 650;
+        text-decoration: none;
+      }
+
+      a:hover,
+      button:hover { filter: brightness(1.15); }
+
+      .secondary {
+        margin-top: 13px;
+        border-color: #2a4666;
+        background: #142b46;
+        color: #a8c2df;
+        cursor: pointer;
+      }
+    </style>
+    <script src="blocked.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <div class="mark" aria-hidden="true">F</div>
+      <p class="eyebrow">FOCUSLOCK GUARDIAN</p>
+      <h1>This site is blocked</h1>
+      <p class="copy">
+        This website requires an authorized entertainment session. Open your
+        FocusLock dashboard to review your account and session status.
+      </p>
+      <p id="blocked-message" class="copy" role="status" hidden></p>
+      <a id="dashboard-link" href="http://localhost:3000/" target="_blank" rel="noreferrer">Open FocusLock dashboard</a>
+      <br>
+      <button id="back-button" class="secondary" type="button">Go back</button>
+    </main>
+  </body>
+</html>
