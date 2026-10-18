@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { LoaderCircle, Mic, MicOff, Send, Trash2 } from "lucide-react";
 import AutoVoiceOver from "@/components/voice/AutoVoiceOver";
 import { sendStudyMessage, StudyAssistantUnavailableError, type StudyMessage } from "@/lib/studyAssistant";
+import type { CodeHighlight, CanvasAction } from "@/lib/ai/structured-response";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 
 type ThreadItem =
@@ -16,11 +17,21 @@ function nextId() {
   return `study-${Date.now()}-${messageSeq}`;
 }
 
-type StudyAssistantChatProps = {
+export type StudyAssistantChatProps = {
   narrationEnabled?: boolean;
   onNarrationEnabledChange?: (enabled: boolean) => void;
   onAnswerReady?: (answer: string) => void;
   onLoadingChange?: (loading: boolean) => void;
+  /** Called whenever a response with structured code/canvas data arrives */
+  onStructuredResponse?: (data: {
+    code: string | null;
+    language: string | null;
+    highlights: CodeHighlight[];
+    canvasAction: CanvasAction | null;
+  }) => void;
+  /** Inject a follow-up message programmatically (e.g. from click-to-explain) */
+  pendingMessage?: string | null;
+  onPendingMessageConsumed?: () => void;
 };
 
 export default function StudyAssistantChat({
@@ -28,6 +39,9 @@ export default function StudyAssistantChat({
   onNarrationEnabledChange,
   onAnswerReady,
   onLoadingChange,
+  onStructuredResponse,
+  pendingMessage,
+  onPendingMessageConsumed,
 }: StudyAssistantChatProps) {
   const [draft, setDraft] = useState("");
   const [items, setItems] = useState<ThreadItem[]>([]);
@@ -45,14 +59,10 @@ export default function StudyAssistantChat({
     return "";
   }, [items]);
 
-  useEffect(() => {
-    onLoadingChange?.(loading);
-  }, [loading, onLoadingChange]);
+  useEffect(() => { onLoadingChange?.(loading); }, [loading, onLoadingChange]);
 
   useEffect(() => {
-    if (latestAssistant) {
-      onAnswerReady?.(latestAssistant);
-    }
+    if (latestAssistant) onAnswerReady?.(latestAssistant);
   }, [latestAssistant, onAnswerReady]);
 
   useEffect(() => {
@@ -60,6 +70,7 @@ export default function StudyAssistantChat({
     if (node) node.scrollTop = node.scrollHeight;
   }, [items, loading]);
 
+  // Append speech transcript to draft
   useEffect(() => {
     const next = recognition.transcript.trim();
     if (!next || next === appliedTranscriptRef.current) return;
@@ -72,6 +83,14 @@ export default function StudyAssistantChat({
     });
   }, [recognition.transcript]);
 
+  // Consume injected pending message (click-to-explain)
+  useEffect(() => {
+    if (!pendingMessage) return;
+    onPendingMessageConsumed?.();
+    void sendDraft(pendingMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingMessage]);
+
   const sendDraft = async (raw: string) => {
     const content = raw.trim();
     if (!content || loading) return;
@@ -81,7 +100,9 @@ export default function StudyAssistantChat({
     appliedTranscriptRef.current = "";
 
     const history: StudyMessage[] = items
-      .filter((item): item is ThreadItem & { kind: "user" | "assistant" } => item.kind === "user" || item.kind === "assistant")
+      .filter((item): item is ThreadItem & { kind: "user" | "assistant" } =>
+        item.kind === "user" || item.kind === "assistant",
+      )
       .map((item) => ({ role: item.kind, content: item.content }));
     history.push({ role: "user", content });
 
@@ -92,9 +113,19 @@ export default function StudyAssistantChat({
     setLoading(true);
 
     try {
-      const reply = await sendStudyMessage(history);
+      const result = await sendStudyMessage(history);
       if (requestIdRef.current !== requestId) return;
-      setItems((current) => [...current, { id: nextId(), kind: "assistant", content: reply }]);
+      setItems((current) => [
+        ...current,
+        { id: nextId(), kind: "assistant", content: result.reply },
+      ]);
+      // Surface structured data to parent (panel)
+      onStructuredResponse?.({
+        code: result.code,
+        language: result.language,
+        highlights: result.highlights,
+        canvasAction: result.canvasAction,
+      });
     } catch (error) {
       if (requestIdRef.current !== requestId) return;
       const message =
@@ -133,21 +164,18 @@ export default function StudyAssistantChat({
 
   const toggleMic = () => {
     if (!recognition.supported) return;
-    if (recognition.listening) {
-      recognition.stop();
-      return;
-    }
+    if (recognition.listening) { recognition.stop(); return; }
     recognition.start();
   };
 
   return (
-    <section className="glass max-w-3xl rounded-2xl p-6">
+    <section className="glass rounded-2xl p-6">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-[11px] font-semibold tracking-[.2em] text-violet-300">STUDY ASSISTANT</div>
           <h3 className="mt-1 font-semibold">Ask by typing or speaking</h3>
           <p className="mt-1 text-xs text-slate-500">
-            Type or speak a question. Gemma AI will answer and you can listen using the voice controls below.
+            Type or speak a question. Gemma AI will answer and visualize relevant structures below.
           </p>
         </div>
         <button
@@ -162,13 +190,12 @@ export default function StudyAssistantChat({
 
       <div
         ref={listRef}
-        className="mb-4 flex max-h-80 flex-col gap-3 overflow-y-auto rounded-xl border border-white/8 bg-black/20 p-3"
+        className="mb-4 flex max-h-72 flex-col gap-3 overflow-y-auto rounded-xl border border-white/8 bg-black/20 p-3"
         aria-live="polite"
       >
         {items.length === 0 && (
           <p className="px-1 py-6 text-center text-sm text-slate-500">
-            Ask a follow-up about your topic. Answers will appear as chat messages. They are not generated until the
-            learning engine is connected.
+            Ask a question about a topic, algorithm, or data structure. Answers appear here and code is shown in the panel.
           </p>
         )}
         {items.map((item) => (
@@ -226,9 +253,7 @@ export default function StudyAssistantChat({
             aria-pressed={recognition.listening}
             title={
               recognition.supported
-                ? recognition.listening
-                  ? "Stop listening"
-                  : "Speak your question"
+                ? recognition.listening ? "Stop listening" : "Speak your question"
                 : "Microphone dictation is not supported in this browser"
             }
             className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium disabled:opacity-40 ${
@@ -258,7 +283,9 @@ export default function StudyAssistantChat({
             This browser does not support speech-to-text. Chrome or Edge on desktop usually work. Typing still works.
           </p>
         )}
-        {recognition.errorMessage && <p className="mt-2 text-xs text-rose-300">{recognition.errorMessage}</p>}
+        {recognition.errorMessage && (
+          <p className="mt-2 text-xs text-rose-300">{recognition.errorMessage}</p>
+        )}
       </form>
     </section>
   );
